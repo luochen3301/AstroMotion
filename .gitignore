@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+release/
+*.egg-info/
+*.mp4
+*.mov
+*.spec
+*.log

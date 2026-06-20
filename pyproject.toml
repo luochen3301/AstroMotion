@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astromotion"
+version = "2.0.0"
+description = "Desktop deep-sky motion video tool with OpenGL star particles, camera motion, and color-fidelity MP4 export."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  "Pillow>=10.0",
+  "PySide6>=6.7",
+  "PyOpenGL>=3.1.7",
+  "opencv-python>=4.9",
+  "moviepy>=1.0.3",
+]
+
+[project.optional-dependencies]
+fits = ["astropy>=6.0"]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+release = ["pyinstaller>=6.0"]
+
+[project.scripts]
+astromotion = "astromotion.app:main"
+
+[tool.setuptools.packages.find]
+include = ["astromotion*"]
+
+[tool.setuptools.package-data]
+astromotion = ["shaders/*.vert", "shaders/*.frag", "shaders/*.glsl"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
