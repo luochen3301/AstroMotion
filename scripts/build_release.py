@@ -120,7 +120,7 @@ def _copy_bootloader_exe(target_dir: Path) -> None:
 
 
 def _copy_docs(target_dir: Path) -> None:
-    for name in ("README.md", "RELEASE_NOTES.md", "DISTRIBUTION_README.md"):
+    for name in ("README.md", "README.zh-CN.md", "RELEASE_NOTES.md", "DISTRIBUTION_README.md"):
         source = ROOT / name
         if source.exists():
             shutil.copy2(source, target_dir / name)
@@ -137,6 +137,7 @@ def _verify_release(package_dir: Path, zip_path: Path) -> None:
     required_files = [
         package_dir / f"{APP_NAME}.exe",
         package_dir / "README.md",
+        package_dir / "README.zh-CN.md",
         package_dir / "RELEASE_NOTES.md",
         package_dir / "DISTRIBUTION_README.md",
     ]
@@ -149,6 +150,7 @@ def _verify_release(package_dir: Path, zip_path: Path) -> None:
     required_archive_names = [
         f"{PACKAGE_NAME}/{APP_NAME}.exe",
         f"{PACKAGE_NAME}/README.md",
+        f"{PACKAGE_NAME}/README.zh-CN.md",
         f"{PACKAGE_NAME}/RELEASE_NOTES.md",
         f"{PACKAGE_NAME}/DISTRIBUTION_README.md",
     ]

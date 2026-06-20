@@ -18,6 +18,9 @@ Python package name: **`astromotion`**
 - OpenGL preview canvas with realtime particle rendering.
 - Automatic real-star extraction from imported photos, with generated-star
   fallback when too few source stars are detected.
+- Real-Star Motion converts detected source-star positions, colors, and
+  brightness from the photo into animated particles instead of relying only on
+  random generated stars.
 - Presets for deep-space flythrough, cinematic star drift, close nebula pass,
   and rotating nebula push-in.
 - Advanced controls for particle count, speed, size, glow, brightness, color,
@@ -65,6 +68,24 @@ In this workspace, the prepared virtual environment can be launched directly:
      trail length, and depth strength.
    - **Export**: duration, frame rate, and output resolution.
 5. Click **Render Video** and choose an MP4 output path.
+
+## Real-Star Motion
+
+AstroMotion can use the actual stars in your imported image as the motion
+source. When you import a deep-sky photo, the app analyzes the background,
+detects point stars, samples their color and brightness, and converts those
+real source stars into animated particles.
+
+This means the moving starfield follows the real structure of the photo rather
+than a purely random generated field. The extracted stars support push-in depth
+motion, rotation, trails, glow, and strength adjustment. Preview and MP4 export
+share the same extracted-star data, so the final render matches what you saw in
+the preview.
+
+If the image does not contain enough detectable point stars, AstroMotion falls
+back to the generated depth starfield automatically. Use **Real Stars** in
+Advanced Settings to tune detection sensitivity and the strength of the
+extracted stars.
 
 ## Export Notes
 
