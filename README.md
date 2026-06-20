@@ -10,7 +10,7 @@ export an MP4 video.
 
 
 
-![Uploading 屏幕截图 2026-06-20 131131.png…]()
+![AstroMotion main interface](docs/images/astromotion-main-en.png)
 
 
 
