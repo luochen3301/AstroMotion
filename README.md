@@ -1,6 +1,7 @@
 # AstroMotion
 
-[中文说明](README.zh-CN.md)
+![Uploading 屏幕截图 2026-06-20 131139.png…]()
+
 
 AstroMotion is a desktop post-production tool for turning static deep-sky
 photography into cinematic motion videos. Import a JPG, PNG, TIFF, or FITS
