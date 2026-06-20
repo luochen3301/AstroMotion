@@ -6,6 +6,8 @@ from unittest.mock import patch
 import numpy as np
 
 from astromotion.export.video_encoder import (
+    COLOR_FIDELITY_YUV_FILTER,
+    COMPATIBILITY_FILTER,
     RGB_ENCODER,
     VideoEncoder,
     find_ffmpeg_executable,
@@ -19,9 +21,9 @@ class VideoEncoderFallbackTests(unittest.TestCase):
         encoder = choose_ffmpeg_encoder({"libx264", "h264_nvenc", "hevc_nvenc"})
         self.assertEqual(encoder, "h264_nvenc")
 
-    def test_falls_back_to_hevc_nvenc(self):
+    def test_compatibility_path_does_not_choose_hevc(self):
         encoder = choose_ffmpeg_encoder({"libx264", "hevc_nvenc"})
-        self.assertEqual(encoder, "hevc_nvenc")
+        self.assertEqual(encoder, "libx264")
 
     def test_falls_back_to_libx264(self):
         encoder = choose_ffmpeg_encoder({"libx264"})
@@ -35,13 +37,43 @@ class VideoEncoderFallbackTests(unittest.TestCase):
         encoder = choose_color_fidelity_encoder({"libx264", RGB_ENCODER, "h264_nvenc"}, prefer_nvenc=True)
         self.assertEqual(encoder, RGB_ENCODER)
 
-    def test_color_fidelity_command_uses_rgb_full_range(self):
+    def test_default_command_uses_social_compatible_h264(self):
         encoder = VideoEncoder(
             Path("out.mp4"),
             width=1920,
             height=1080,
             fps=60,
             ffmpeg_path="ffmpeg",
+        )
+        encoder.encoder_name = "libx264"
+        command = encoder._build_ffmpeg_command()
+
+        self.assertIn("libx264", command)
+        self.assertIn("yuv420p", command)
+        self.assertIn(COMPATIBILITY_FILTER, command)
+        self.assertIn("-profile:v", command)
+        self.assertEqual(command[command.index("-profile:v") + 1], "high")
+        self.assertIn("-tag:v", command)
+        self.assertEqual(command[command.index("-tag:v") + 1], "avc1")
+        self.assertIn("-crf", command)
+        self.assertEqual(command[command.index("-crf") + 1], "18")
+        self.assertIn("-preset", command)
+        self.assertEqual(command[command.index("-preset") + 1], "medium")
+        self.assertIn("-color_range", command)
+        self.assertIn("tv", command)
+        self.assertIn("+faststart", command)
+        self.assertNotIn(RGB_ENCODER, command)
+        self.assertNotIn("yuv444p", command)
+
+    def test_color_fidelity_command_uses_rgb_full_range_when_requested(self):
+        encoder = VideoEncoder(
+            Path("out.mp4"),
+            width=1920,
+            height=1080,
+            fps=60,
+            ffmpeg_path="ffmpeg",
+            color_fidelity=True,
+            quality_crf=14,
         )
         encoder.encoder_name = RGB_ENCODER
         command = encoder._build_ffmpeg_command()
@@ -55,7 +87,7 @@ class VideoEncoderFallbackTests(unittest.TestCase):
         self.assertIn("iec61966-2-1", command)
         self.assertNotIn("yuv420p", command)
 
-    def test_color_fidelity_crf_is_clamped(self):
+    def test_quality_crf_is_clamped(self):
         high = VideoEncoder(Path("out.mp4"), 1920, 1080, 60, ffmpeg_path="ffmpeg", quality_crf=99)
         low = VideoEncoder(Path("out.mp4"), 1920, 1080, 60, ffmpeg_path="ffmpeg", quality_crf=-5)
         self.assertEqual(high.quality_crf, 30)
@@ -69,12 +101,13 @@ class VideoEncoderFallbackTests(unittest.TestCase):
             fps=60,
             ffmpeg_path="ffmpeg",
             prefer_nvenc=True,
+            color_fidelity=True,
         )
         encoder.encoder_name = "h264_nvenc"
         command = encoder._build_ffmpeg_command()
 
         self.assertIn("yuv444p", command)
-        self.assertIn("scale=in_range=pc:out_range=pc:out_color_matrix=bt709,format=yuv444p", command)
+        self.assertIn(COLOR_FIDELITY_YUV_FILTER, command)
         self.assertIn("-color_range", command)
         self.assertIn("pc", command)
         self.assertNotIn("yuv420p", command)
@@ -97,7 +130,14 @@ class VideoEncoderFallbackTests(unittest.TestCase):
 
     def test_color_fidelity_requires_ffmpeg_when_none_is_available(self):
         with patch("astromotion.export.video_encoder.find_ffmpeg_executable", return_value=None):
-            encoder = VideoEncoder(Path("out.mp4"), width=64, height=48, fps=24, ffmpeg_path=None)
+            encoder = VideoEncoder(
+                Path("out.mp4"),
+                width=64,
+                height=48,
+                fps=24,
+                ffmpeg_path=None,
+                color_fidelity=True,
+            )
         with self.assertRaisesRegex(RuntimeError, "Color-fidelity export requires FFmpeg"):
             encoder.open()
 

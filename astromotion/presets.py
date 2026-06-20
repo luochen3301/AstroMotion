@@ -19,6 +19,8 @@ PRESET_DEFAULTS: dict[str, Any] = {
     "lifetime": 7.0,
     "motion_blur": 0.24,
     "color_mode": "theme",
+    "star_detection_sensitivity": 0.55,
+    "source_star_strength": 1.0,
     "theme_colors": [
         (0.96, 0.98, 1.0, 1.0),
         (0.84, 0.91, 1.0, 1.0),
@@ -74,7 +76,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "display_name": "Nebula Close Pass",
         "particle_count": 9_779,
         "speed": 0.07,
-        "size": 1.10,
+        "size": 4.00,
         "glow": 0.85,
         "brightness": 1.75,
         "color_intensity": 4.05,
@@ -83,6 +85,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "zoom_start": 1.0,
         "zoom_end": 1.40,
         "zoom_speed": 1.0,
+        "rotation_degrees": 4.80,
         "trail_length": 0.16,
         "depth_strength": 0.90,
     },
@@ -113,7 +116,7 @@ def preset_names() -> list[str]:
 
 
 def default_preset_name() -> str:
-    return "Deep Space Flythrough"
+    return "Nebula Close Pass"
 
 
 def get_preset(name: str | None = None) -> dict[str, Any]:
@@ -141,6 +144,10 @@ def normalize_preset(preset: dict[str, Any]) -> dict[str, Any]:
     merged["turbulence"] = float(max(0.0, merged["turbulence"]))
     merged["lifetime"] = float(max(0.05, merged["lifetime"]))
     merged["motion_blur"] = float(min(1.0, max(0.0, merged["motion_blur"])))
+    merged["star_detection_sensitivity"] = float(
+        min(1.0, max(0.0, merged["star_detection_sensitivity"]))
+    )
+    merged["source_star_strength"] = float(min(2.0, max(0.0, merged["source_star_strength"])))
     merged["zoom_start"] = float(max(0.1, merged["zoom_start"]))
     merged["zoom_end"] = float(max(0.1, merged["zoom_end"]))
     merged["zoom_speed"] = float(min(5.0, max(0.05, merged["zoom_speed"])))

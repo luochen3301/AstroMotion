@@ -10,9 +10,10 @@ from PySide6.QtGui import QGuiApplication, QOffscreenSurface, QOpenGLContext, QS
 from PySide6.QtOpenGL import QOpenGLFramebufferObject, QOpenGLFramebufferObjectFormat
 
 from astromotion.engine.camera import identity_matrix
-from astromotion.engine.camera_motion import rotation_at_time, zoom_at_time
+from astromotion.engine.camera_motion import rotation_at_time, rotation_safe_zoom, zoom_at_time
 from astromotion.engine.particle_engine import ParticleEngine, _gl_handle
 from astromotion.engine.shader_program import compile_program, read_shader
+from astromotion.engine.star_extraction import ExtractedStarField
 from astromotion.media.image_loader import fit_image_to_canvas, load_image_rgb
 from astromotion.media.texture_loader import create_texture_from_rgb, delete_texture
 
@@ -30,6 +31,7 @@ class GpuOffscreenRenderer:
         height: int,
         preset: dict,
         image_path: str | Path | None = None,
+        source_star_field: ExtractedStarField | None = None,
         duration_seconds: float = 10.0,
         seed: int | None = 1234,
     ) -> None:
@@ -57,6 +59,7 @@ class GpuOffscreenRenderer:
             gpu_mode="cpu",
             seed=seed,
         )
+        self.engine.set_source_stars(source_star_field)
 
         self._initialize_context()
         self._initialize_gl_resources()
@@ -82,7 +85,10 @@ class GpuOffscreenRenderer:
         GL.glViewport(0, 0, self.width, self.height)
         GL.glClearColor(0.0, 0.0, 0.0, 1.0)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
-        self._draw_background(zoom, rotation_degrees)
+        self._draw_background(
+            rotation_safe_zoom(zoom, rotation_degrees, (self.width, self.height)),
+            rotation_degrees,
+        )
         self.engine.render(identity_matrix())
 
         GL.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1)

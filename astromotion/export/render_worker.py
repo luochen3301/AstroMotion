@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from astromotion.config import DEFAULT_DURATION_SECONDS, DEFAULT_FPS
+from astromotion.engine.star_extraction import ExtractedStarField
 from astromotion.export.gpu_offscreen_renderer import GpuOffscreenRenderer, GpuRendererUnavailable
 from astromotion.export.moviepy_muxer import attach_audio
 from astromotion.export.offscreen_renderer import OffscreenRenderer
@@ -19,6 +20,7 @@ class RenderSettings:
     output_path: Path
     preset: dict
     image_path: Path | None = None
+    source_star_field: ExtractedStarField | None = None
     audio_path: Path | None = None
     width: int = 1920
     height: int = 1080
@@ -26,8 +28,8 @@ class RenderSettings:
     fps: int = DEFAULT_FPS
     prefer_nvenc: bool = False
     prefer_gpu: bool = True
-    color_fidelity: bool = True
-    quality_crf: int = 14
+    color_fidelity: bool = False
+    quality_crf: int = 18
 
 
 class RenderWorker(QThread):
@@ -94,6 +96,7 @@ class RenderWorker(QThread):
                     height=settings.height,
                     preset=settings.preset,
                     image_path=settings.image_path,
+                    source_star_field=settings.source_star_field,
                     duration_seconds=settings.duration_seconds,
                 )
             except Exception as exc:
@@ -106,5 +109,6 @@ class RenderWorker(QThread):
             height=settings.height,
             preset=settings.preset,
             image_path=settings.image_path,
+            source_star_field=settings.source_star_field,
             duration_seconds=settings.duration_seconds,
         )

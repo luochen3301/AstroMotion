@@ -14,11 +14,14 @@ void main() {
     float angle = radians(u_rotation_degrees);
     float c = cos(angle);
     float s = sin(angle);
+    float canvas_aspect = max(u_canvas_size.x, 1.0) / max(u_canvas_size.y, 1.0);
     vec2 centered_uv = v_uv - 0.5;
-    vec2 rotated_uv = vec2(
-        c * centered_uv.x + s * centered_uv.y,
-        -s * centered_uv.x + c * centered_uv.y
+    vec2 canvas_space = vec2(centered_uv.x * canvas_aspect, centered_uv.y);
+    vec2 rotated_canvas = vec2(
+        c * canvas_space.x + s * canvas_space.y,
+        -s * canvas_space.x + c * canvas_space.y
     );
+    vec2 rotated_uv = vec2(rotated_canvas.x / canvas_aspect, rotated_canvas.y);
     vec2 canvas_uv = rotated_uv / max(u_zoom, 0.001) + 0.5;
     if (canvas_uv.x < 0.0 || canvas_uv.x > 1.0 || canvas_uv.y < 0.0 || canvas_uv.y > 1.0) {
         frag_color = vec4(0.0, 0.0, 0.0, 1.0);
@@ -26,7 +29,6 @@ void main() {
     }
 
     float image_aspect = max(u_image_size.x, 1.0) / max(u_image_size.y, 1.0);
-    float canvas_aspect = max(u_canvas_size.x, 1.0) / max(u_canvas_size.y, 1.0);
     vec2 fit_size = vec2(1.0, 1.0);
     if (canvas_aspect > image_aspect) {
         fit_size.x = image_aspect / canvas_aspect;

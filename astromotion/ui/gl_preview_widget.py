@@ -6,17 +6,22 @@ import ctypes
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QElapsedTimer, QTimer, Signal, Slot
+from PySide6.QtCore import QElapsedTimer, QSize, QTimer, Signal, Slot
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtWidgets import QSizePolicy
 
 from astromotion.engine.camera import identity_matrix
-from astromotion.engine.camera_motion import rotation_at_time, zoom_at_time
+from astromotion.engine.camera_motion import rotation_at_time, rotation_safe_zoom, zoom_at_time
 from astromotion.engine.color_sampling import build_star_color_palette, sample_theme_colors
 from astromotion.engine.particle_engine import ParticleEngine, _gl_handle
 from astromotion.engine.shader_program import compile_program, read_shader
+from astromotion.engine.star_extraction import ExtractedStarField, extract_star_field
 from astromotion.media.image_loader import load_image_rgb
 from astromotion.media.texture_loader import create_texture_from_rgb, delete_texture
 from astromotion.presets import default_preset_name, get_preset
+
+
+MIN_SOURCE_STAR_COUNT = 12
 
 
 class GLPreviewWidget(QOpenGLWidget):
@@ -24,6 +29,7 @@ class GLPreviewWidget(QOpenGLWidget):
 
     preview_time_changed = Signal(float)
     playback_state_changed = Signal(bool)
+    source_stars_changed = Signal(int, bool)
 
     def __init__(
         self,
@@ -31,6 +37,9 @@ class GLPreviewWidget(QOpenGLWidget):
     ) -> None:
         super().__init__(parent)
         self.setMinimumSize(860, 520)
+        policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
         self.engine = ParticleEngine(max_particles=200_000, preset=default_preset_name(), seed=7)
         self.current_preset_name = default_preset_name()
         self.preview_time_seconds = 0.0
@@ -39,6 +48,8 @@ class GLPreviewWidget(QOpenGLWidget):
         self.current_image_path: Path | None = None
         self.current_image_size: tuple[int, int] | None = None
         self.current_theme_colors: list[tuple[float, float, float, float]] | None = None
+        self.extracted_star_field: ExtractedStarField | None = None
+        self._star_detection_sensitivity = float(self.engine.preset.get("star_detection_sensitivity", 0.55))
         self._image_rgb: np.ndarray | None = None
 
         self._timer = QTimer(self)
@@ -53,13 +64,16 @@ class GLPreviewWidget(QOpenGLWidget):
         self._background_texture = 0
         self._zoom = 1.0
         self._rotation_degrees = 0.0
+        self._viewport_size = (860, 520)
 
     def load_image(self, path: str | Path) -> None:
         image = load_image_rgb(path)
         self.current_image_path = Path(path)
         self._image_rgb = image
         self.current_image_size = (int(image.shape[1]), int(image.shape[0]))
+        self.updateGeometry()
         self.current_theme_colors = sample_theme_colors(image, count=5)
+        self._refresh_source_stars(float(self.engine.preset.get("star_detection_sensitivity", 0.55)))
         self.engine.update_params(
             {"theme_colors": self._theme_colors_for_preset(self.engine.preset, self.current_theme_colors)}
         )
@@ -74,13 +88,21 @@ class GLPreviewWidget(QOpenGLWidget):
         preset = get_preset(name)
         if self.current_theme_colors:
             preset["theme_colors"] = self._theme_colors_for_preset(preset, self.current_theme_colors)
+        if self._source_stars_enabled():
+            preset["emitter"] = "image_stars"
         self.current_preset_name = name
+        self.engine.set_source_stars(self.current_source_star_field())
         self.engine.set_preset(preset)
         self.seek_preview(0.0, pause=False)
         self.update()
 
     @Slot(dict)
     def update_particle_params(self, params: dict) -> None:
+        sensitivity = params.get("star_detection_sensitivity")
+        if sensitivity is not None:
+            sensitivity = float(sensitivity)
+            if abs(sensitivity - self._star_detection_sensitivity) > 1e-6 and self._image_rgb is not None:
+                self._refresh_source_stars(sensitivity)
         self.engine.update_params(params)
         self.update()
 
@@ -112,6 +134,19 @@ class GLPreviewWidget(QOpenGLWidget):
     def current_preset_state(self) -> dict:
         return dict(self.engine.preset)
 
+    def current_source_star_field(self) -> ExtractedStarField | None:
+        return self.extracted_star_field if self._source_stars_enabled() else None
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return max(1, int(round(max(1, int(width)) / self._canvas_aspect_ratio())))
+
+    def sizeHint(self) -> QSize:
+        width = 960
+        return QSize(width, self.heightForWidth(width))
+
     def _theme_colors_for_preset(
         self,
         preset: dict,
@@ -136,7 +171,9 @@ class GLPreviewWidget(QOpenGLWidget):
         self._elapsed.start()
 
     def resizeGL(self, width: int, height: int) -> None:
-        self.engine.resize(width, height)
+        _x, _y, viewport_width, viewport_height = self._canvas_viewport_rect(width, height)
+        self._viewport_size = (viewport_width, viewport_height)
+        self.engine.resize(viewport_width, viewport_height)
 
     def paintGL(self) -> None:
         from OpenGL import GL
@@ -157,14 +194,21 @@ class GLPreviewWidget(QOpenGLWidget):
 
         width = max(1, self.width())
         height = max(1, self.height())
-        GL.glViewport(0, 0, width, height)
+        viewport_x, viewport_y, viewport_width, viewport_height = self._canvas_viewport_rect(width, height)
+        self._viewport_size = (viewport_width, viewport_height)
+        self.engine.resize(viewport_width, viewport_height)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        GL.glViewport(viewport_x, viewport_y, viewport_width, viewport_height)
 
-        self._zoom = zoom_at_time(self.engine.preset, self.preview_time_seconds, self.duration_seconds)
         self._rotation_degrees = rotation_at_time(
             self.engine.preset,
             self.preview_time_seconds,
             self.duration_seconds,
+        )
+        self._zoom = rotation_safe_zoom(
+            zoom_at_time(self.engine.preset, self.preview_time_seconds, self.duration_seconds),
+            self._rotation_degrees,
+            (viewport_width, viewport_height),
         )
         if self._background_texture:
             self._draw_background()
@@ -184,6 +228,57 @@ class GLPreviewWidget(QOpenGLWidget):
             return
         delete_texture(self._background_texture)
         self._background_texture = create_texture_from_rgb(np.flipud(self._image_rgb))
+
+    def _refresh_source_stars(self, sensitivity: float) -> None:
+        self._star_detection_sensitivity = float(sensitivity)
+        if self._image_rgb is None:
+            self.extracted_star_field = None
+            self.engine.set_source_stars(None)
+            self.source_stars_changed.emit(0, False)
+            return
+
+        field = extract_star_field(
+            self._image_rgb,
+            sensitivity=self._star_detection_sensitivity,
+            max_stars=self.engine.max_particles,
+        )
+        self.extracted_star_field = field
+        if self._source_stars_enabled():
+            self.engine.set_source_stars(field)
+            self.engine.update_params({"emitter": "image_stars"})
+        else:
+            self.engine.set_source_stars(None)
+            fallback_emitter = get_preset(self.current_preset_name).get("emitter", "depth_starfield")
+            if self.engine.preset.get("emitter") == "image_stars":
+                self.engine.update_params({"emitter": fallback_emitter})
+        self.source_stars_changed.emit(field.count, self._source_stars_enabled())
+
+    def _source_stars_enabled(self) -> bool:
+        return self.extracted_star_field is not None and self.extracted_star_field.count >= MIN_SOURCE_STAR_COUNT
+
+    def _canvas_aspect_ratio(self) -> float:
+        if self.current_image_size is not None:
+            width, height = self.current_image_size
+        else:
+            width, height = (16, 9)
+        return max(float(width), 1.0) / max(float(height), 1.0)
+
+    def _canvas_viewport_rect(self, widget_width: int | None = None, widget_height: int | None = None) -> tuple[int, int, int, int]:
+        width = max(1, int(self.width() if widget_width is None else widget_width))
+        height = max(1, int(self.height() if widget_height is None else widget_height))
+        target_aspect = self._canvas_aspect_ratio()
+        widget_aspect = width / height
+        if widget_aspect > target_aspect:
+            viewport_height = height
+            viewport_width = max(1, int(round(height * target_aspect)))
+            viewport_x = (width - viewport_width) // 2
+            viewport_y = 0
+        else:
+            viewport_width = width
+            viewport_height = max(1, int(round(width / target_aspect)))
+            viewport_x = 0
+            viewport_y = (height - viewport_height) // 2
+        return viewport_x, viewport_y, viewport_width, viewport_height
 
     def _create_background_quad(self) -> None:
         from OpenGL import GL
@@ -230,8 +325,8 @@ class GLPreviewWidget(QOpenGLWidget):
         )
         GL.glUniform2f(
             GL.glGetUniformLocation(self._background_program, "u_canvas_size"),
-            float(max(1, self.width())),
-            float(max(1, self.height())),
+            float(max(1, self._viewport_size[0])),
+            float(max(1, self._viewport_size[1])),
         )
         GL.glBindVertexArray(self._quad_vao)
         GL.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, 4)

@@ -21,14 +21,29 @@ class AdvancedSettingsPanelTests(unittest.TestCase):
         self.assertIn("rotation_degrees", settings)
         self.assertIn("brightness", settings)
         self.assertIn("color_intensity", settings)
+        self.assertIn("star_detection_sensitivity", settings)
+        self.assertIn("source_star_strength", settings)
         self.assertAlmostEqual(settings["zoom_start"], 1.0)
         self.assertAlmostEqual(settings["zoom_speed"], 1.0)
-        self.assertAlmostEqual(settings["rotation_degrees"], 0.0)
+        self.assertAlmostEqual(settings["rotation_degrees"], 4.8)
+        self.assertAlmostEqual(settings["star_detection_sensitivity"], 0.55)
+        self.assertAlmostEqual(settings["source_star_strength"], 1.0)
+        self.assertAlmostEqual(settings["size"], 4.0)
         self.assertGreater(settings["brightness"], 1.0)
         self.assertGreater(settings["color_intensity"], 1.0)
         self.assertEqual(panel._rows["color_intensity"].spin.maximum(), 5.0)
+        self.assertEqual(panel._rows["source_star_strength"].spin.maximum(), 2.0)
         self.assertEqual(panel._rows["rotation_degrees"].spin.minimum(), -20.0)
         self.assertEqual(panel._rows["rotation_degrees"].spin.maximum(), 20.0)
+        panel.close()
+
+    def test_slider_rows_keep_clickable_control_widths(self):
+        panel = AdvancedSettingsPanel()
+        row = panel._rows["star_detection_sensitivity"]
+
+        self.assertGreaterEqual(panel.minimumWidth(), 420)
+        self.assertGreaterEqual(row.slider.minimumWidth(), 96)
+        self.assertGreaterEqual(row.spin.minimumWidth(), 128)
         panel.close()
 
     def test_export_resolution_options_are_exposed(self):

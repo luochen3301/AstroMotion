@@ -19,9 +19,9 @@ class PresetTests(unittest.TestCase):
         self.assertIn("Nebula Close Pass", PRESETS)
         self.assertIn("Rotating Nebula Push-in", PRESETS)
 
-    def test_deep_space_is_default(self):
-        self.assertEqual(default_preset_name(), "Deep Space Flythrough")
-        self.assertEqual(get_preset()["name"], "Deep Space Flythrough")
+    def test_nebula_close_pass_is_default(self):
+        self.assertEqual(default_preset_name(), "Nebula Close Pass")
+        self.assertEqual(get_preset()["name"], "Nebula Close Pass")
 
     def test_deep_space_defaults_are_subtle(self):
         preset = get_preset("Deep Space Flythrough")
@@ -48,7 +48,7 @@ class PresetTests(unittest.TestCase):
         preset = get_preset("Nebula Close Pass")
         self.assertEqual(preset["particle_count"], 9_779)
         self.assertAlmostEqual(preset["speed"], 0.07)
-        self.assertAlmostEqual(preset["size"], 1.10)
+        self.assertAlmostEqual(preset["size"], 4.00)
         self.assertAlmostEqual(preset["glow"], 0.85)
         self.assertAlmostEqual(preset["brightness"], 1.75)
         self.assertAlmostEqual(preset["color_intensity"], 4.05)
@@ -59,7 +59,7 @@ class PresetTests(unittest.TestCase):
         self.assertAlmostEqual(preset["zoom_speed"], 1.0)
         self.assertAlmostEqual(preset["trail_length"], 0.16)
         self.assertAlmostEqual(preset["depth_strength"], 0.90)
-        self.assertAlmostEqual(preset["rotation_degrees"], 0.0)
+        self.assertAlmostEqual(preset["rotation_degrees"], 4.80)
 
     def test_rotating_nebula_push_in_adds_rotation(self):
         preset = get_preset("Rotating Nebula Push-in")
@@ -81,6 +81,8 @@ class PresetTests(unittest.TestCase):
             "turbulence",
             "lifetime",
             "motion_blur",
+            "star_detection_sensitivity",
+            "source_star_strength",
             "zoom_start",
             "zoom_end",
             "zoom_speed",
@@ -120,6 +122,14 @@ class PresetTests(unittest.TestCase):
         self.assertEqual(preset["rotation_degrees"], 20.0)
         preset = normalize_preset({"rotation_degrees": -99.0})
         self.assertEqual(preset["rotation_degrees"], -20.0)
+
+    def test_source_star_controls_are_clamped(self):
+        preset = normalize_preset({"star_detection_sensitivity": 99.0, "source_star_strength": 99.0})
+        self.assertEqual(preset["star_detection_sensitivity"], 1.0)
+        self.assertEqual(preset["source_star_strength"], 2.0)
+        preset = normalize_preset({"star_detection_sensitivity": -1.0, "source_star_strength": -1.0})
+        self.assertEqual(preset["star_detection_sensitivity"], 0.0)
+        self.assertEqual(preset["source_star_strength"], 0.0)
 
 
 if __name__ == "__main__":

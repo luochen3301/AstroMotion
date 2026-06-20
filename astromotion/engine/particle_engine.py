@@ -16,6 +16,7 @@ from astromotion.engine.particle_types import (
     interleave_trails_for_gpu,
 )
 from astromotion.engine.shader_program import compile_compute_program, compile_program, read_shader
+from astromotion.engine.star_extraction import ExtractedStarField
 from astromotion.presets import get_preset, normalize_preset
 
 
@@ -70,6 +71,7 @@ class ParticleEngine:
 
         self.preset = normalize_preset(get_preset() if preset is None else self._coerce_preset(preset))
         self._base_alpha = np.ones((self.max_particles,), dtype=np.float32)
+        self.source_star_field: ExtractedStarField | None = None
 
         self.gl = None
         self.gl_initialized = False
@@ -91,9 +93,16 @@ class ParticleEngine:
 
     def set_preset(self, preset: str | dict[str, Any]) -> None:
         self.preset = normalize_preset(self._coerce_preset(preset))
-        self.active_count = min(int(self.preset["particle_count"]), self.max_particles)
+        self.active_count = self._resolve_active_count(self.preset)
         self._reset_simulation()
         self._mark_gpu_dirty()
+
+    def set_source_stars(self, star_field: ExtractedStarField | None) -> None:
+        self.source_star_field = star_field if star_field is not None and star_field.count > 0 else None
+        if self.preset.get("emitter") == "image_stars":
+            self.active_count = self._resolve_active_count(self.preset)
+            self._reset_simulation()
+            self._mark_gpu_dirty()
 
     def update_params(self, params: dict[str, Any]) -> None:
         old_count = self.active_count
@@ -101,9 +110,21 @@ class ParticleEngine:
         merged = dict(self.preset)
         merged.update(params)
         self.preset = normalize_preset(merged)
-        self.active_count = min(int(self.preset["particle_count"]), self.max_particles)
+        self.active_count = self._resolve_active_count(self.preset)
 
         should_respawn_all = old_emitter != self.preset.get("emitter")
+        if self.preset.get("emitter") == "image_stars":
+            source_refresh_keys = {
+                "particle_count",
+                "speed",
+                "size",
+                "opacity",
+                "source_star_strength",
+                "depth_strength",
+                "depth_range",
+                "focal_length",
+            }
+            should_respawn_all |= self.active_count != old_count or bool(source_refresh_keys & params.keys())
         if should_respawn_all:
             self._spawn(np.arange(self.active_count), initial=True)
         elif self.active_count != old_count:
@@ -111,15 +132,21 @@ class ParticleEngine:
             if self.active_count > start:
                 self._spawn(np.arange(start, self.active_count), initial=True)
 
-        if "theme_colors" in params or "color_intensity" in params or "opacity" in params:
+        if self._effective_emitter() == "image_stars":
+            self._assign_source_star_visuals(np.arange(self.active_count), refresh_opacity=True)
+        elif "theme_colors" in params or "color_intensity" in params or "opacity" in params:
             self._assign_colors(np.arange(self.active_count), refresh_opacity="opacity" in params)
             self._update_alpha()
 
-        self.buffers.sizes[: self.active_count] = self._random_sizes(self.active_count)
+        if self._effective_emitter() != "image_stars":
+            self.buffers.sizes[: self.active_count] = self._random_sizes(self.active_count)
         self._mark_gpu_dirty()
 
     def resize(self, width: int, height: int) -> None:
         self.viewport_size = (max(1, int(width)), max(1, int(height)))
+        if self._effective_emitter() == "image_stars":
+            self._spawn(np.arange(self.active_count), initial=True)
+            self._mark_gpu_dirty()
 
     def seek(self, time_seconds: float, step_seconds: float = 1.0 / 60.0) -> None:
         """Deterministically rebuild the particle state at a preview time.
@@ -209,8 +236,8 @@ class ParticleEngine:
         self.buffers.previous_positions[:count] = positions
 
         life[:, 0] += dt
-        expired = life[:, 0] >= life[:, 1]
-        emitter = self.preset.get("emitter", "fullscreen")
+        emitter = self._effective_emitter()
+        expired = np.zeros((count,), dtype=bool) if emitter == "image_stars" else life[:, 0] >= life[:, 1]
 
         turbulence = float(self.preset.get("turbulence", 0.0))
         if turbulence > 0.0:
@@ -312,9 +339,11 @@ class ParticleEngine:
         if indices.size == 0:
             return
 
-        emitter = self.preset.get("emitter", "fullscreen")
+        emitter = self._effective_emitter()
         if emitter == "depth_starfield":
             self._spawn_depth_starfield(indices)
+        elif emitter == "image_stars":
+            self._spawn_image_stars(indices)
         elif emitter == "center_depth":
             self._spawn_warp(indices)
         elif emitter == "left_edge":
@@ -322,14 +351,23 @@ class ParticleEngine:
         else:
             self._spawn_cosmic_dust(indices)
 
-        lifetime = float(self.preset["lifetime"])
-        max_life = self.rng.uniform(lifetime * 0.75, lifetime * 1.25, size=indices.size).astype(np.float32)
-        current = self.rng.uniform(0.0, max_life, size=indices.size).astype(np.float32) if initial else 0.0
+        if emitter == "image_stars":
+            max_life = np.full((indices.size,), 1_000_000.0, dtype=np.float32)
+            current = np.zeros((indices.size,), dtype=np.float32)
+        else:
+            lifetime = float(self.preset["lifetime"])
+            max_life = self.rng.uniform(lifetime * 0.75, lifetime * 1.25, size=indices.size).astype(np.float32)
+            current = (
+                self.rng.uniform(0.0, max_life, size=indices.size).astype(np.float32) if initial else 0.0
+            )
         self.buffers.life[indices, 0] = current
         self.buffers.life[indices, 1] = max_life
-        self.buffers.sizes[indices] = self._random_sizes(indices.size)
 
-        self._assign_colors(indices, refresh_opacity=True)
+        if emitter == "image_stars":
+            self._assign_source_star_visuals(indices, refresh_opacity=True)
+        else:
+            self.buffers.sizes[indices] = self._random_sizes(indices.size)
+            self._assign_colors(indices, refresh_opacity=True)
         self.buffers.previous_positions[indices] = self.buffers.positions[indices]
 
     def _reset_simulation(self) -> None:
@@ -352,6 +390,38 @@ class ParticleEngine:
         self.buffers.velocities[indices, 0] = self.rng.normal(0.0, 0.018 * speed, n)
         self.buffers.velocities[indices, 1] = self.rng.normal(0.0, 0.018 * speed, n)
         self.buffers.velocities[indices, 2] = -self.rng.uniform(speed * 0.32, speed * 1.05, n)
+
+    def _spawn_image_stars(self, indices: np.ndarray) -> None:
+        field = self.source_star_field
+        if field is None or field.count <= 0:
+            self._spawn_depth_starfield(indices)
+            return
+
+        star_indices = self._source_star_indices(indices)
+        screen_xy = self._source_star_screen_xy()[star_indices]
+        intensity = field.intensity[star_indices]
+        n = indices.size
+        depth_range = float(self.preset.get("depth_range", 3.2))
+        z = self.rng.uniform(0.65, max(0.85, depth_range), n).astype(np.float32)
+        z *= (1.12 - np.clip(intensity, 0.0, 1.0) * 0.22).astype(np.float32)
+        z = np.clip(z, 0.35, max(0.45, depth_range)).astype(np.float32)
+
+        depth_strength = float(self.preset.get("depth_strength", 0.0))
+        focal = float(self.preset.get("focal_length", 1.0))
+        if depth_strength > 0.001:
+            world_xy = screen_xy * (z / max(focal * depth_strength, 1e-6))[:, None]
+        else:
+            world_xy = screen_xy
+        self.buffers.positions[indices, 0:2] = world_xy
+        self.buffers.positions[indices, 2] = z
+
+        speed = float(self.preset["speed"])
+        outward = screen_xy * self.rng.uniform(0.002, 0.012, (n, 1)).astype(np.float32) * speed
+        jitter = self.rng.normal(0.0, 0.0025 * max(speed, 0.05), size=(n, 2)).astype(np.float32)
+        self.buffers.velocities[indices, 0:2] = outward + jitter
+        self.buffers.velocities[indices, 2] = -self.rng.uniform(speed * 0.12, speed * 0.55, n) * (
+            0.75 + intensity * 0.55
+        )
 
     def _spawn_cosmic_dust(self, indices: np.ndarray) -> None:
         n = indices.size
@@ -389,7 +459,7 @@ class ParticleEngine:
         self.buffers.velocities[indices] = direction * self.rng.uniform(speed * 0.55, speed * 1.15, (n, 1))
 
     def _out_of_bounds(self, positions: np.ndarray, emitter: str) -> np.ndarray:
-        if emitter == "depth_starfield":
+        if emitter in {"depth_starfield", "image_stars"}:
             projected = project_positions(positions, self.preset)
             return (
                 (positions[:, 2] <= 0.12)
@@ -419,7 +489,7 @@ class ParticleEngine:
         if colors.ndim != 2 or colors.shape[1] != 4 or colors.shape[0] == 0:
             colors = np.asarray([(0.92, 0.96, 1.0, 1.0)], dtype=np.float32)
         picked = colors[self.rng.integers(0, colors.shape[0], size=indices.size)].copy()
-        if self.preset.get("emitter") == "depth_starfield":
+        if self._effective_emitter() == "depth_starfield":
             picked[:, :3] = self._vary_star_colors(picked[:, :3])
         self.buffers.colors[indices] = picked
 
@@ -462,26 +532,103 @@ class ParticleEngine:
         field_z = np.sin((positions[:, 0] + positions[:, 1]) * 3.1 + t * 0.19)
         wind = np.column_stack((field_x, field_y, field_z)).astype(np.float32)
 
-        emitter = self.preset.get("emitter", "fullscreen")
+        emitter = self._effective_emitter()
         if emitter == "depth_starfield":
             wind[:, 2] *= 0.08
             multiplier = 0.045
+        elif emitter == "image_stars":
+            wind[:, 2] *= 0.05
+            multiplier = 0.018
         else:
             multiplier = 0.015 if emitter == "center_depth" else 0.08
         velocities += wind * (turbulence * multiplier * dt)
 
     def _update_alpha(self) -> None:
         count = self.active_count
+        if self._effective_emitter() == "image_stars":
+            alpha = self._base_alpha[:count].copy()
+            z = np.maximum(self.buffers.positions[:count, 2], 0.12)
+            alpha *= np.clip(0.82 / z, 0.28, 1.75)
+            self.buffers.colors[:count, 3] = np.clip(alpha, 0.0, 1.0).astype(np.float32)
+            return
+
         life = self.buffers.life[:count]
         age = np.divide(life[:, 0], life[:, 1], out=np.zeros(count, dtype=np.float32), where=life[:, 1] > 0)
         fade_in = np.clip(age / 0.10, 0.0, 1.0)
         fade_out = np.clip((1.0 - age) / 0.18, 0.0, 1.0)
         alpha = self._base_alpha[:count] * np.minimum(fade_in, fade_out)
-        if self.preset.get("emitter") == "depth_starfield":
+        if self._effective_emitter() == "depth_starfield":
             z = np.maximum(self.buffers.positions[:count, 2], 0.12)
             depth_gain = np.clip(0.75 / z, 0.18, 1.85)
             alpha *= depth_gain
         self.buffers.colors[:count, 3] = np.clip(alpha, 0.0, 1.0).astype(np.float32)
+
+    def _resolve_active_count(self, preset: dict[str, Any]) -> int:
+        count = min(int(preset["particle_count"]), self.max_particles)
+        if preset.get("emitter") == "image_stars" and self.source_star_field is not None:
+            count = min(count, self.source_star_field.count)
+        return max(0, int(count))
+
+    def _effective_emitter(self) -> str:
+        if self.preset.get("emitter") == "image_stars":
+            return "image_stars" if self.source_star_field is not None and self.source_star_field.count > 0 else "depth_starfield"
+        return str(self.preset.get("emitter", "fullscreen"))
+
+    def _source_star_indices(self, indices: np.ndarray) -> np.ndarray:
+        field = self.source_star_field
+        if field is None or field.count <= 0:
+            return np.zeros((indices.size,), dtype=np.int64)
+        return (np.asarray(indices, dtype=np.int64) % field.count).astype(np.int64)
+
+    def _source_star_screen_xy(self) -> np.ndarray:
+        field = self.source_star_field
+        if field is None or field.count <= 0:
+            return np.empty((0, 2), dtype=np.float32)
+
+        source_width, source_height = field.source_size
+        canvas_width, canvas_height = self.viewport_size
+        source_width = max(1, int(source_width))
+        source_height = max(1, int(source_height))
+        canvas_width = max(1, int(canvas_width))
+        canvas_height = max(1, int(canvas_height))
+        scale = min(canvas_width / source_width, canvas_height / source_height)
+        fit_width = source_width * scale
+        fit_height = source_height * scale
+        offset_x = (canvas_width - fit_width) * 0.5
+        offset_y = (canvas_height - fit_height) * 0.5
+
+        canvas_x = offset_x + field.xy[:, 0] * fit_width
+        canvas_y = offset_y + field.xy[:, 1] * fit_height
+        ndc_x = (canvas_x / canvas_width) * 2.0 - 1.0
+        ndc_y = 1.0 - (canvas_y / canvas_height) * 2.0
+        return np.column_stack((ndc_x, ndc_y)).astype(np.float32)
+
+    def _assign_source_star_visuals(self, indices: np.ndarray, refresh_opacity: bool) -> None:
+        field = self.source_star_field
+        if field is None or field.count <= 0 or indices.size == 0:
+            return
+
+        star_indices = self._source_star_indices(indices)
+        colors = np.clip(field.colors[star_indices], 0.0, 1.0).astype(np.float32)
+        intensity = np.clip(field.intensity[star_indices], 0.0, 1.0).astype(np.float32)
+        radius = np.clip(field.radius[star_indices], 0.8, 6.0).astype(np.float32)
+        strength = float(np.clip(self.preset.get("source_star_strength", 1.0), 0.0, 2.0))
+
+        self.buffers.colors[indices, :3] = np.clip(colors * (0.78 + intensity[:, None] * 0.36), 0.0, 1.0)
+        if refresh_opacity:
+            self._base_alpha[indices] = np.clip(
+                float(self.preset["opacity"]) * strength * (0.24 + intensity * 0.82),
+                0.0,
+                1.0,
+            )
+        base_size = float(self.preset["size"])
+        radius_scale = np.clip(0.62 + radius * 0.42, 0.65, 3.4)
+        intensity_scale = np.clip(0.72 + intensity * 0.62, 0.72, 1.34)
+        strength_scale = 0.88 + min(strength, 1.5) * 0.12
+        self.buffers.sizes[indices] = (base_size * radius_scale * intensity_scale * strength_scale).astype(
+            np.float32
+        )
+        self._update_alpha()
 
     def _mark_gpu_dirty(self) -> None:
         if not self._suppress_upload:

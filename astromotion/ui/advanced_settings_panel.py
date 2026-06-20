@@ -38,6 +38,7 @@ class AdvancedSettingsPanel(QWidget):
     settings_changed = Signal(dict)
     render_requested = Signal()
     duration_changed = Signal(float)
+    MINIMUM_PANEL_WIDTH = 420
 
     SPECS = [
         SliderSpec("particle_count", 1_000, 200_000, 1_000, "particles", True),
@@ -48,6 +49,8 @@ class AdvancedSettingsPanel(QWidget):
         SliderSpec("color_intensity", 0.0, 5.0, 0.05, "particles"),
         SliderSpec("opacity", 0.0, 1.0, 0.01, "particles"),
         SliderSpec("turbulence", 0.0, 2.0, 0.01, "particles"),
+        SliderSpec("star_detection_sensitivity", 0.0, 1.0, 0.01, "source"),
+        SliderSpec("source_star_strength", 0.0, 2.0, 0.01, "source"),
         SliderSpec("zoom_start", 0.7, 1.5, 0.01, "motion"),
         SliderSpec("zoom_end", 0.8, 1.8, 0.01, "motion"),
         SliderSpec("zoom_speed", 0.1, 3.0, 0.01, "motion"),
@@ -59,6 +62,7 @@ class AdvancedSettingsPanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("AdvancedSettingsPanel")
+        self.setMinimumWidth(self.MINIMUM_PANEL_WIDTH)
         self._rows: dict[str, _SliderRow] = {}
         self._labels: dict[str, QLabel] = {}
         self._group_titles: dict[str, QLabel] = {}
@@ -89,12 +93,13 @@ class AdvancedSettingsPanel(QWidget):
 
         content = QWidget()
         content.setObjectName("SettingsContent")
+        content.setMinimumWidth(self.MINIMUM_PANEL_WIDTH - 40)
         body_layout = QVBoxLayout(content)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(10)
 
         group_forms: dict[str, QFormLayout] = {}
-        for group in ("particles", "motion"):
+        for group in ("particles", "source", "motion"):
             card, form = self._create_group_card(group)
             group_forms[group] = form
             body_layout.addWidget(card)
@@ -240,6 +245,7 @@ class _SliderRow(QWidget):
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setObjectName("ParamSlider")
+        self.slider.setMinimumWidth(96)
         self.slider.setRange(int(spec.minimum * self._scale), int(spec.maximum * self._scale))
         layout.addWidget(self.slider, 1)
 
@@ -253,6 +259,7 @@ class _SliderRow(QWidget):
             self.spin.setSingleStep(float(spec.step))
             self.spin.setDecimals(2)
         self.spin.setObjectName("ParamSpin")
+        self.spin.setMinimumWidth(128)
         layout.addWidget(self.spin)
 
         self.slider.valueChanged.connect(self._slider_changed)

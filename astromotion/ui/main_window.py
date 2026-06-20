@@ -31,6 +31,10 @@ from astromotion.ui.preset_bar import PresetBar
 from astromotion.ui.render_progress_dialog import RenderProgressDialog
 
 
+ADVANCED_DOCK_DEFAULT_WIDTH = 440
+ADVANCED_DOCK_MINIMUM_WIDTH = 430
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -62,6 +66,8 @@ class MainWindow(QMainWindow):
         self.time_label.setObjectName("MutedLabel")
         self._duration_seconds = 10.0
         self._slider_dragging = False
+        self._source_star_count = 0
+        self._using_source_stars = False
 
         self._build_layout()
         self._connect_signals()
@@ -108,6 +114,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.advanced_dock = QDockWidget(self)
+        self.advanced_dock.setMinimumWidth(ADVANCED_DOCK_MINIMUM_WIDTH)
         self.advanced_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
         self.advanced_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetClosable
@@ -115,6 +122,7 @@ class MainWindow(QMainWindow):
         )
         self.advanced_dock.setWidget(self.settings_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.advanced_dock)
+        self.resizeDocks([self.advanced_dock], [ADVANCED_DOCK_DEFAULT_WIDTH], Qt.Orientation.Horizontal)
 
     def _connect_signals(self) -> None:
         self.preset_bar.preset_selected.connect(self._select_preset)
@@ -123,6 +131,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.duration_changed.connect(self._set_preview_duration)
         self.preview.preview_time_changed.connect(self._preview_time_changed)
         self.preview.playback_state_changed.connect(self._playback_state_changed)
+        self.preview.source_stars_changed.connect(self._source_stars_changed)
         self.play_button.clicked.connect(self._toggle_playback)
         self.time_slider.sliderPressed.connect(self._preview_slider_pressed)
         self.time_slider.sliderReleased.connect(self._preview_slider_released)
@@ -152,7 +161,7 @@ class MainWindow(QMainWindow):
         self.file_label.setText(
             self.preview.current_image_path.name if self.preview.current_image_path else tr("toolbar.no_image")
         )
-        self.status_label.setText(tr("toolbar.ready"))
+        self._refresh_status_label()
         self._refresh_language_combo()
         self.advanced_dock.setWindowTitle(tr("dock.advanced"))
         self._playback_state_changed(self.preview.is_playing)
@@ -182,6 +191,19 @@ class MainWindow(QMainWindow):
             self.file_label.setText(Path(path).name)
         except Exception as exc:
             QMessageBox.critical(self, APP_NAME, f"{tr('dialog.import_failed')}\n{exc}")
+
+    def _source_stars_changed(self, count: int, using_source_stars: bool) -> None:
+        self._source_star_count = int(count)
+        self._using_source_stars = bool(using_source_stars)
+        self._refresh_status_label()
+
+    def _refresh_status_label(self) -> None:
+        if self.preview.current_image_path and self._using_source_stars:
+            self.status_label.setText(tr("toolbar.source_stars").format(count=self._source_star_count))
+        elif self.preview.current_image_path:
+            self.status_label.setText(tr("toolbar.generated_stars"))
+        else:
+            self.status_label.setText(tr("toolbar.ready"))
 
     def _select_preset(self, name: str) -> None:
         self.preview.set_preset(name)
@@ -247,6 +269,7 @@ class MainWindow(QMainWindow):
         settings = RenderSettings(
             output_path=Path(path),
             image_path=self.preview.current_image_path,
+            source_star_field=self.preview.current_source_star_field(),
             preset=self.preview.current_preset_state(),
             width=export_width,
             height=export_height,

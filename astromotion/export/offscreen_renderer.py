@@ -13,8 +13,9 @@ from pathlib import Path
 
 import numpy as np
 
-from astromotion.engine.camera_motion import rotation_at_time, zoom_at_time
+from astromotion.engine.camera_motion import rotation_at_time, rotation_safe_zoom, zoom_at_time
 from astromotion.engine.particle_engine import ParticleEngine, project_positions
+from astromotion.engine.star_extraction import ExtractedStarField
 from astromotion.media.image_loader import fit_image_to_canvas, load_image_rgb
 
 
@@ -25,6 +26,7 @@ class OffscreenRenderer:
         height: int,
         preset: dict,
         image_path: str | Path | None = None,
+        source_star_field: ExtractedStarField | None = None,
         duration_seconds: float = 10.0,
         seed: int | None = 1234,
     ) -> None:
@@ -38,6 +40,7 @@ class OffscreenRenderer:
             gpu_mode="cpu",
             seed=seed,
         )
+        self.engine.set_source_stars(source_star_field)
         self.duration_seconds = max(0.001, float(duration_seconds))
         self.background = self._load_background(image_path)
 
@@ -110,8 +113,8 @@ class OffscreenRenderer:
         return self._transform_background(zoom, 0.0)
 
     def _transform_background(self, zoom: float, rotation_degrees: float = 0.0) -> np.ndarray:
-        zoom = max(0.1, float(zoom))
         rotation_degrees = float(rotation_degrees)
+        zoom = rotation_safe_zoom(max(0.1, float(zoom)), rotation_degrees, (self.width, self.height))
         if abs(zoom - 1.0) < 0.001 and abs(rotation_degrees) < 0.001:
             return self.background.copy()
 

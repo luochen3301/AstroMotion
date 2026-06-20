@@ -1,9 +1,10 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
-from astromotion.engine.camera_motion import rotation_at_time
+from astromotion.engine.camera_motion import rotation_at_time, rotation_safe_zoom
 from astromotion.export.offscreen_renderer import OffscreenRenderer
 from astromotion.media.image_loader import fit_image_to_canvas
 from astromotion.presets import get_preset
@@ -18,12 +19,21 @@ class RenderStabilityTests(unittest.TestCase):
         self.assertIn("u_canvas_size", shader)
         self.assertIn("u_rotation_degrees", shader)
         self.assertIn("fit_size", shader)
+        self.assertIn("canvas_aspect", shader)
+        self.assertIn("centered_uv.x * canvas_aspect", shader)
+        self.assertIn("rotated_canvas.x / canvas_aspect", shader)
 
     def test_rotation_curve_reaches_target(self):
         preset = {"rotation_degrees": 4.0, "zoom_speed": 1.0}
         self.assertAlmostEqual(rotation_at_time(preset, 0.0, 10.0), 0.0)
         self.assertGreater(rotation_at_time(preset, 5.0, 10.0), 1.9)
         self.assertAlmostEqual(rotation_at_time(preset, 10.0, 10.0), 4.0)
+
+    def test_rotation_safe_zoom_covers_rotated_canvas_corners(self):
+        self.assertAlmostEqual(rotation_safe_zoom(1.0, 0.0, (160, 90)), 1.0)
+        self.assertAlmostEqual(rotation_safe_zoom(1.0, 4.0, (160, 90)), 1.1216, delta=0.002)
+        self.assertAlmostEqual(rotation_safe_zoom(1.0, 20.0, (160, 90)), 1.5477, delta=0.002)
+        self.assertGreater(rotation_safe_zoom(1.3, 4.0, (160, 90)), 1.29)
 
     def test_fit_image_to_canvas_letterboxes_wide_images(self):
         image = np.zeros((50, 200, 3), dtype=np.uint8)
@@ -102,6 +112,27 @@ class RenderStabilityTests(unittest.TestCase):
             int(np.abs(rotated[45, 80].astype(np.int16) - background[45, 80].astype(np.int16)).max()),
             3,
         )
+
+    def test_offscreen_background_transform_uses_rotation_safe_zoom(self):
+        renderer = OffscreenRenderer(
+            width=160,
+            height=90,
+            preset={**get_preset("Rotating Nebula Push-in"), "particle_count": 1},
+            duration_seconds=10.0,
+            seed=24,
+        )
+
+        with patch("astromotion.export.offscreen_renderer.rotation_safe_zoom", return_value=1.25) as safe_zoom:
+            renderer._transform_background(1.0, 4.0)
+
+        safe_zoom.assert_called_once_with(1.0, 4.0, (160, 90))
+
+    def test_preview_and_gpu_paths_use_rotation_safe_zoom(self):
+        preview_source = Path("astromotion/ui/gl_preview_widget.py").read_text(encoding="utf-8")
+        gpu_source = Path("astromotion/export/gpu_offscreen_renderer.py").read_text(encoding="utf-8")
+
+        self.assertIn("rotation_safe_zoom", preview_source)
+        self.assertIn("rotation_safe_zoom", gpu_source)
 
     def test_no_particle_no_zoom_frame_preserves_background_color(self):
         renderer = OffscreenRenderer(

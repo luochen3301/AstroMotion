@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "V2.0"
+VERSION = "V3.0"
 APP_NAME = "AstroMotion"
 RELEASE_DIR = ROOT / "release"
 DIST_DIR = ROOT / "dist"

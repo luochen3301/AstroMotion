@@ -6,7 +6,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton, QWidget
 
 from astromotion.i18n import preset_display_name
-from astromotion.presets import preset_names
+from astromotion.presets import default_preset_name, preset_names
 
 
 class PresetBar(QWidget):
@@ -33,7 +33,10 @@ class PresetBar(QWidget):
             self._buttons[name] = button
             button.clicked.connect(lambda checked=False, preset_name=name: self._select(preset_name))
 
-        if self.group.buttons():
+        default_name = default_preset_name()
+        if default_name in self._buttons:
+            self._buttons[default_name].setChecked(True)
+        elif self.group.buttons():
             self.group.buttons()[0].setChecked(True)
         self.retranslate_ui()
 

@@ -1,4 +1,4 @@
-"""MP4 encoding helpers with FFmpeg NVENC preference and OpenCV fallback."""
+"""MP4 encoding helpers with FFmpeg H.264 compatibility defaults."""
 
 from __future__ import annotations
 
@@ -11,8 +11,14 @@ from typing import Iterable
 import numpy as np
 
 
-NVENC_ENCODERS = ("h264_nvenc", "hevc_nvenc")
+NVENC_ENCODERS = ("h264_nvenc",)
 RGB_ENCODER = "libx264rgb"
+COMPATIBILITY_FILTER = (
+    "scale=in_range=pc:out_range=tv:out_color_matrix=bt709,"
+    "format=yuv420p,"
+    "setparams=range=tv:colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+)
+COLOR_FIDELITY_YUV_FILTER = "scale=in_range=pc:out_range=pc:out_color_matrix=bt709,format=yuv444p"
 
 
 def find_ffmpeg_executable() -> str | None:
@@ -96,8 +102,8 @@ class VideoEncoder:
         fps: int,
         prefer_nvenc: bool = True,
         ffmpeg_path: str | None = None,
-        color_fidelity: bool = True,
-        quality_crf: int = 14,
+        color_fidelity: bool = False,
+        quality_crf: int = 18,
     ) -> None:
         self.output_path = Path(output_path)
         self.width = int(width) - (int(width) % 2)
@@ -221,7 +227,7 @@ class VideoEncoder:
         if self.color_fidelity:
             return [
                 "-vf",
-                "scale=in_range=pc:out_range=pc:out_color_matrix=bt709,format=yuv444p",
+                COLOR_FIDELITY_YUV_FILTER,
                 "-c:v",
                 self.encoder_name,
                 "-pix_fmt",
@@ -238,13 +244,75 @@ class VideoEncoder:
                 "+faststart",
             ]
 
+        if self.encoder_name == "libx264":
+            return [
+                "-vf",
+                COMPATIBILITY_FILTER,
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-profile:v",
+                "high",
+                "-crf",
+                str(self.quality_crf),
+                "-preset",
+                "medium",
+                "-tag:v",
+                "avc1",
+                "-colorspace",
+                "bt709",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-color_range",
+                "tv",
+                "-movflags",
+                "+faststart",
+            ]
+
+        if self.encoder_name == "h264_nvenc":
+            return [
+                "-vf",
+                COMPATIBILITY_FILTER,
+                "-c:v",
+                "h264_nvenc",
+                "-pix_fmt",
+                "yuv420p",
+                "-profile:v",
+                "high",
+                "-rc:v",
+                "vbr",
+                "-cq:v",
+                str(self.quality_crf),
+                "-b:v",
+                "0",
+                "-tag:v",
+                "avc1",
+                "-colorspace",
+                "bt709",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-color_range",
+                "tv",
+                "-movflags",
+                "+faststart",
+            ]
+
         return [
             "-vf",
-            "scale=in_range=pc:out_range=tv:out_color_matrix=bt709,format=yuv420p",
+            COMPATIBILITY_FILTER,
             "-c:v",
             self.encoder_name,
             "-pix_fmt",
             "yuv420p",
+            "-q:v",
+            "3",
+            "-tag:v",
+            "mp4v",
             "-colorspace",
             "bt709",
             "-color_primaries",

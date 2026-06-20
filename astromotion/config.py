@@ -1,7 +1,7 @@
 """Shared application constants."""
 
 APP_NAME = "AstroMotion"
-APP_VERSION = "2.0.0"
+APP_VERSION = "3.0.0"
 
 DEFAULT_CANVAS_SIZE = (1920, 1080)
 DEFAULT_PARTICLE_COUNT = 100_000

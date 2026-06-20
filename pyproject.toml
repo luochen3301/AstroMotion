@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "astromotion"
-version = "2.0.0"
-description = "Desktop deep-sky motion video tool with OpenGL star particles, camera motion, and color-fidelity MP4 export."
+version = "3.0.0"
+description = "Desktop deep-sky motion video tool with real-star extraction, OpenGL preview, camera motion, and social-compatible MP4 export."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

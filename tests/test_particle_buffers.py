@@ -5,6 +5,7 @@ import numpy as np
 from astromotion.engine.camera_motion import zoom_at_time
 from astromotion.engine.particle_engine import ParticleEngine, _gl_handle
 from astromotion.engine.particle_types import create_empty_buffers, interleave_for_gpu
+from astromotion.engine.star_extraction import ExtractedStarField
 from astromotion.export.offscreen_renderer import OffscreenRenderer
 from astromotion.presets import get_preset
 
@@ -72,6 +73,57 @@ class ParticleBufferTests(unittest.TestCase):
         engine = ParticleEngine(max_particles=5000, preset="Deep Space Flythrough", seed=4)
         engine.update_params({"particle_count": 1234})
         self.assertEqual(engine.active_count, 1234)
+
+    def test_image_stars_use_source_positions_and_count_limit(self):
+        field = _source_star_field()
+        engine = ParticleEngine(
+            max_particles=10,
+            preset={
+                **get_preset("Deep Space Flythrough"),
+                "emitter": "image_stars",
+                "particle_count": 2,
+                "speed": 0.0,
+                "depth_strength": 1.0,
+                "focal_length": 1.0,
+            },
+            viewport_size=(100, 100),
+            seed=24,
+        )
+        engine.set_source_stars(field)
+
+        snap = engine.snapshot()
+        projected = snap["positions"].copy()
+        projected[:, 0:2] /= projected[:, 2:3]
+
+        self.assertEqual(engine.active_count, 2)
+        self.assertLess(abs(float(projected[0, 0])), 0.02)
+        self.assertLess(abs(float(projected[0, 1])), 0.02)
+        self.assertAlmostEqual(float(projected[1, 0]), 0.5, delta=0.03)
+        self.assertAlmostEqual(float(projected[1, 1]), 0.5, delta=0.03)
+        self.assertGreater(float(snap["colors"][1, 2]), float(snap["colors"][1, 0]))
+
+    def test_image_star_strength_controls_alpha(self):
+        field = _source_star_field()
+        engine = ParticleEngine(
+            max_particles=10,
+            preset={
+                **get_preset("Deep Space Flythrough"),
+                "emitter": "image_stars",
+                "particle_count": 3,
+                "source_star_strength": 1.0,
+                "opacity": 1.0,
+            },
+            viewport_size=(100, 100),
+            seed=25,
+        )
+        engine.set_source_stars(field)
+        visible_alpha = float(engine.snapshot()["colors"][:, 3].mean())
+
+        engine.update_params({"source_star_strength": 0.0})
+        hidden_alpha = float(engine.snapshot()["colors"][:, 3].mean())
+
+        self.assertGreater(visible_alpha, 0.05)
+        self.assertLess(hidden_alpha, 1e-6)
 
     def test_state_changes_only_mark_gpu_dirty_without_binding_buffers(self):
         class ExplodingGL:
@@ -174,6 +226,50 @@ class ParticleBufferTests(unittest.TestCase):
         dim_frame = dim_renderer.render_frame(1.0 / 60.0)
         bright_frame = bright_renderer.render_frame(1.0 / 60.0)
         self.assertGreater(float(bright_frame.mean()), float(dim_frame.mean()))
+
+    def test_offscreen_image_stars_render_source_points(self):
+        preset = {
+            **get_preset("Deep Space Flythrough"),
+            "emitter": "image_stars",
+            "particle_count": 3,
+            "speed": 0.0,
+            "brightness": 3.0,
+            "opacity": 1.0,
+            "glow": 0.0,
+            "trail_length": 0.0,
+        }
+        renderer = OffscreenRenderer(
+            96,
+            54,
+            preset,
+            source_star_field=_source_star_field(),
+            duration_seconds=10.0,
+            seed=26,
+        )
+        renderer.background[:] = 0
+
+        frame = renderer.render_frame(1.0 / 60.0)
+
+        self.assertEqual(frame.shape, (54, 96, 3))
+        self.assertGreater(int(frame.max()), 20)
+
+
+def _source_star_field() -> ExtractedStarField:
+    return ExtractedStarField(
+        source_size=(100, 100),
+        xy=np.asarray([[0.5, 0.5], [0.75, 0.25], [0.25, 0.75]], dtype=np.float32),
+        colors=np.asarray(
+            [
+                [1.0, 0.98, 0.92],
+                [0.42, 0.62, 1.0],
+                [1.0, 0.74, 0.42],
+            ],
+            dtype=np.float32,
+        ),
+        intensity=np.asarray([1.0, 0.65, 0.42], dtype=np.float32),
+        radius=np.asarray([1.0, 1.6, 2.1], dtype=np.float32),
+        score=np.asarray([1.0, 0.6, 0.3], dtype=np.float32),
+    )
 
 
 if __name__ == "__main__":

@@ -66,6 +66,37 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(hasattr(window.settings_panel, "language_combo"))
         window.close()
 
+    def test_advanced_dock_opens_wide_enough_for_controls(self):
+        window = MainWindow()
+
+        self.assertGreaterEqual(window.advanced_dock.minimumWidth(), 430)
+        self.assertGreaterEqual(window.settings_panel.minimumWidth(), 420)
+        self.assertGreaterEqual(window.advanced_dock.width(), 430)
+        window.close()
+
+    def test_nebula_close_pass_is_selected_on_startup(self):
+        window = MainWindow()
+
+        self.assertEqual(window.preview.current_preset_name, "Nebula Close Pass")
+        self.assertTrue(window.preset_bar._buttons["Nebula Close Pass"].isChecked())
+        self.assertAlmostEqual(window.settings_panel.current_settings()["size"], 4.0)
+        self.assertAlmostEqual(window.settings_panel.current_settings()["rotation_degrees"], 4.8)
+        window.close()
+
+    def test_source_star_status_updates_with_language(self):
+        window = MainWindow()
+        window.preview.current_image_path = Path("K:/software-test/nebula.png")
+        language_manager.set_language("en")
+
+        window._source_stars_changed(42, True)
+        self.assertEqual(window.status_label.text(), "42 real stars extracted")
+
+        window._source_stars_changed(3, False)
+        self.assertEqual(window.status_label.text(), "Using generated stars")
+
+        window.close()
+        language_manager.set_language("auto")
+
 
 if __name__ == "__main__":
     unittest.main()
