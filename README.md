@@ -1,6 +1,7 @@
 # AstroMotion
 
-![Uploading 屏幕截图 2026-06-20 131139.png…]()
+![Uploading 屏幕截图 2026-06-20 131131.png…]()
+
 
 
 AstroMotion is a desktop post-production tool for turning static deep-sky
