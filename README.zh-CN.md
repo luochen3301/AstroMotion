@@ -5,7 +5,8 @@
 AstroMotion 是一款面向深空摄影后期的桌面软件。它可以把静态星云、星系、深空照片转换为带有 3D 星点粒子、推近运镜、旋转运镜和拖尾氛围的动态 MP4 视频。
 
 
-![AstroMotion 中文界面](docs/images/astromotion-main-zh.png)
+![Uploading 屏幕截图 2026-06-20 131139.png…]()
+
 
 ## 功能亮点
 
