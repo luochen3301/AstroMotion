@@ -7,8 +7,7 @@ photography into cinematic motion videos. Import a JPG, PNG, TIFF, or FITS
 image, add subtle 3D star-particle motion, preview the result in real time, and
 export an MP4 video.
 
-Recommended GitHub repository name: **`AstroMotion`**  
-Python package name: **`astromotion`**
+
 
 ![AstroMotion main interface](docs/images/astromotion-main-en.png)
 
